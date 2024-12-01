@@ -75,4 +75,6 @@
      c1)))
 
 (calc-similarity-sum sample)
+;;=> 31
 (calc-similarity-sum input)
+;;=> 19678534

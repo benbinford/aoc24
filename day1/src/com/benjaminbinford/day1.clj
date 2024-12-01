@@ -68,11 +68,10 @@
   [input]
   (let [[c1 c2] (columns input)
         m (histogram c2)]
-    (reduce
-     (fn [acc n]
-       (+ acc (calc-similarity n m)))
-     0
-     c1)))
+    (reduce + (map
+               (fn [n]
+                 (calc-similarity n m))
+               c1))))
 
 (calc-similarity-sum sample)
 ;;=> 31

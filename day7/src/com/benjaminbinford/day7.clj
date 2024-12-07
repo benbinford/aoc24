@@ -20,22 +20,28 @@
   ;;=> [10 [1 2 3]]
 
 (defn calc-line
-  ([test-value nums total]
+  ([ops test-value nums total]
    (if (empty? nums)
      (if (= test-value total)
        true
        false)
-     (or (calc-line test-value (rest nums) (* total (first nums)))
-         (calc-line test-value  (rest nums) (+ total (first nums))))))
-  ([[test-value nums]]
-   (calc-line test-value (rest nums) (first nums))))
+     (some identity
+           (map #(calc-line ops test-value (rest nums) (% total (first nums)))
+                ops))))
+  ([[test-value nums] ops]
+   (calc-line ops test-value (rest nums) (first nums))))
 
 
-(calc-line [190 [10 19]])
+
+
+(calc-line [190 [10 19]] ops)
 ;;=> true
 
+(defn calculate [input ops]
+  (reduce + (map first (filter #(calc-line % ops) (map parse-line input)))))
+
 (defn part1 [input]
-  (reduce + (map first (filter #(calc-line %) (map parse-line input)))))
+  (calculate input ops))
 ;;=> #'com.benjaminbinford.day7/part1
 
 (part1 sample)
@@ -50,22 +56,12 @@
 ;;=> 486
 
 
-(defn calc-line2
-  ([test-value nums total]
-   (if (empty? nums)
-     (if (= test-value total)
-       true
-       false)
-     (or (calc-line2 test-value (rest nums) (* total (first nums)))
-         (calc-line2 test-value  (rest nums) (+ total (first nums)))
-         (calc-line2 test-value  (rest nums) (concat-nums total (first nums))))))
-  ([[test-value nums]]
-   (calc-line2 test-value (rest nums) (first nums))))
 
+(def ops2 [* + concat-nums])
 
 
 (defn part2 [input]
-  (reduce + (map first (filter #(calc-line2 %) (map parse-line input)))))
+  (calculate input ops2))
 
 (part2 sample)
 ;;=> 11387

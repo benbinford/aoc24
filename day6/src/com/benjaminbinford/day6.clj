@@ -33,54 +33,54 @@
 (find-guard sample)
 ;;=> [4 6]
 
-(defn wander-guard [s sref]
-  (let [h (count s)
-        w (count (nth s 0))
-        pos (find-guard s)]
-    (loop [pos pos
-           dir (first dirs)
-           dirs (rest dirs)
-           visited #{pos}
-           states #{(conj pos dir)}]
+(defn wander-guard
+  ([s ref]
+   (wander-guard s ref (find-guard s)))
+  ([s sref pos]
+   (let [h (count s)
+         w (count (nth s 0))]
+     (loop [pos pos
+            dir (first dirs)
+            dirs (rest dirs)
+            states #{(conj pos dir)}]
 
-      (let [next-i (+ (first pos) (first dir))
-            next-j (+ (second pos) (second dir))]
-        (cond
-          (or (< next-i 0)
-              (< next-j 0)
-              (>= next-i w)
-              (>= next-j h)) (count visited)
-          (= \# (sref s next-i next-j)) (recur pos (first dirs) (rest dirs) visited states)
-          (contains? states [next-i next-j dir]) -1
-          :else (recur [next-i next-j] dir dirs (conj visited [next-i next-j]) (conj states [next-i next-j dir])))))))
+       (let [next-i (+ (nth pos 0) (first dir))
+             next-j (+ (nth pos 1) (second dir))]
+         (cond
+           (or (< next-i 0)
+               (< next-j 0)
+               (>= next-i w)
+               (>= next-j h)) {:status :exit :visited (fn [] (into #{} (map #(take 2 %) states)))}
+           (= \# (sref s next-i next-j)) (recur pos (first dirs) (rest dirs) states)
+           (contains? states [next-i next-j dir]) {:status :loop}
+           :else (recur [next-i next-j] dir dirs  (conj states [next-i next-j dir]))))))))
 
 
 
-(wander-guard sample sref)
+(count ((:visited (wander-guard sample sref))))
 ;;=> 41
 ;;=> 41
-(wander-guard input sref)
+(count ((:visited (wander-guard input sref))))
 ;;=> 4722
 (wander-guard loop-example sref)
-;;=> -1
+;;=> {:status :loop}
 
-(wander-guard sample (sref-proxy 0 0 \#))
+(count ((:visited (wander-guard sample (sref-proxy 0 0 \#)))))
 ;;=> 41
 
 (wander-guard sample (sref-proxy 3 6 \#))
-;;=> -1
+;;=> {:status :loop}
 
 (defn part2 [s]
-  (let [h (count s)
-        w (count (nth s 0))]
-    (reduce + (for [i (range w)
-                    j (range h)
-                    :when (and (not= \# (sref s i j)) (not= \^ (sref s i j)))]
-                (let [step-count (wander-guard s (sref-proxy i j \#))]
-
-                  (if (> step-count 0)
-                    0
-                    1))))))
+  (let [guard-pos (find-guard s)
+        result (wander-guard s sref guard-pos)
+        visited ((:visited result))]
+    (reduce + (for [[i j] visited
+                    :when (not= guard-pos [i j])]
+                (let [result (wander-guard s (sref-proxy i j \#)  guard-pos)]
+                  (if (= :loop (:status result))
+                    1
+                    0))))))
 
 (part2 sample)
 ;;=> 6

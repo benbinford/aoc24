@@ -32,10 +32,10 @@
 
 
 (def step
-  (memoize (fn [input count]
-             (if (zero? count)
-               input
-               (vec (mapcat #(step (step-stone %) (dec count)) input))))))
+  (memoize (fn [input step-count]
+             (if (zero? step-count)
+               (count input)
+               (reduce + (map #(step (step-stone %) (dec step-count)) input))))))
 
 
 
@@ -55,13 +55,12 @@
 (step sample 6)
 ;;=> [2097446912 14168 4048 2 0 2 4 40 48 2024 40 48 80 96 2 8 6 7 6 0 3 2]
 
-(count (step sample 25))
+(step sample 25)
 ;;=> 55312
 
-(count (step input 25))
-;;=> 
+(step input 25)
+;;=> 194482
 
 
-(count (step input 45))
-
-(count (step [0] 35))
+(step input 75)
+;;=> 232454623677743

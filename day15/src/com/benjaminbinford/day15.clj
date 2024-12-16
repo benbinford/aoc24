@@ -1,11 +1,12 @@
 (ns com.benjaminbinford.day15
   (:require [clojure.string :as str]
-            [clojure.spec.alpha :as s])
+            [clojure.spec.alpha :as s]
+            [clojure.set :as set])
   (:gen-class))
 
 (s/def ::w int?)
 (s/def ::h int?)
-(s/def ::kind (s/nilable #{::wall ::box ::robot}))
+(s/def ::kind (s/nilable #{::wall ::box ::robot ::leftbox ::rightbox}))
 (s/def ::p (s/tuple int? int?))
 (s/def ::raw-position (s/keys :req [::p ::kind]))
 (s/def ::raw-positions (s/coll-of ::raw-position))
@@ -13,8 +14,7 @@
 (s/def ::positions (s/map-of ::p ::kind))
 (s/def ::position-list (s/coll-of ::p))
 (s/def ::robot ::p)
-(s/def ::block-width int?)
-(s/def ::map (s/keys :req [::block-width ::w ::h ::positions ::robot]))
+(s/def ::map (s/keys :req [::w ::h ::positions ::robot]))
 (s/def ::command (s/tuple int? int?))
 (s/def ::commands (s/coll-of ::command))
 (s/def ::state (s/keys :req [::map ::commands]))
@@ -42,7 +42,7 @@
                                       (keep-indexed
                                        (fn [i c]
                                          (when (not= \. c)
-                                           {::p [i j] ::kind (case c \# ::wall \O ::box \@ ::robot)})) line))
+                                           {::p [i j] ::kind (case c \# ::wall \O ::box \@ ::robot \[ ::leftbox \] ::rightbox)})) line))
                                     lines))}))
 
 (position-stream "########
@@ -96,9 +96,8 @@
 
 
 
-(defn parse-positions [input block-width]
-  {:pre [(s/valid? string? input)
-         (s/valid? int block-width)]
+(defn parse-positions [input]
+  {:pre [(s/valid? string? input)]
    :post [(s/valid? ::map %)]}
   (let [{:keys [::raw-positions ::w ::h]} (position-stream input)]
 
@@ -106,9 +105,9 @@
      (fn [{:keys [::positions ::robot]} pos]
        (let [new-positions (assoc positions (::p pos) (::kind pos))]
          (if (= ::robot (::kind pos))
-           {::positions new-positions ::robot (::p pos)  ::w w ::h h ::block-width block-width}
-           {::positions new-positions ::robot robot  ::w w ::h h ::block-width block-width})))
-     {::positions {} ::robot nil ::w w ::h h ::block-width block-width}
+           {::positions new-positions ::robot (::p pos)  ::w w ::h h}
+           {::positions new-positions ::robot robot  ::w w ::h h})))
+     {::positions {} ::robot nil ::w w ::h h}
      raw-positions)))
 
 (parse-positions "########
@@ -118,7 +117,7 @@
 #.#.O..#
 #...O..#
 #......#
-########" 2)
+########")
 ;;=> #:com.benjaminbinford.day15{:positions
 ;;                               {[7 6] :com.benjaminbinford.day15/wall,
 ;;                                [7 1] :com.benjaminbinford.day15/wall,
@@ -159,8 +158,7 @@
 ;;                                [4 0] :com.benjaminbinford.day15/wall},
 ;;                               :robot [2 2],
 ;;                               :w 8,
-;;                               :h 8,
-;;                               :block-width 2}
+;;                               :h 8}
 
 
 (defn parse-commands [input]
@@ -176,13 +174,12 @@
 (parse-commands "<^^>>>vv<v>>v<<")
 ;;=> [[-1 0] [0 -1] [0 -1] [1 0] [1 0] [1 0] [0 1] [0 1] [-1 0] [0 1] [1 0] [1 0] [0 1] [-1 0] [-1 0]]
 
-(defn parse [input block-width]
-  {:pre [(s/valid? string? input)
-         (s/valid? int block-width)]
+(defn parse [input]
+  {:pre [(s/valid? string? input)]
    :post [(s/valid? ::state %)]}
   (let [sections (str/split input #"\n\n")]
 
-    {::map (parse-positions (first sections) block-width)
+    {::map (parse-positions (first sections))
      ::commands (parse-commands (second sections))}))
 
 
@@ -195,7 +192,7 @@
 #......#
 ########
 
-<^^>>>vv<v>>v<<" 1))
+<^^>>>vv<v>>v<<"))
 
 small-sample
 ;;=> #:com.benjaminbinford.day15{:map
@@ -258,43 +255,85 @@ small-sample
 ;;                                [-1 0]]}
 
 
-(def input (parse (slurp "resources/input.txt") 1))
-(def sample (parse (slurp "resources/sample.txt") 1))
+(def input (parse (slurp "resources/input.txt")))
+(def sample (parse (slurp "resources/sample.txt")))
 
 
 
-(defn display-kind [kind block-width]
+(defn display-kind [kind]
   (case kind
     ::wall \#
-    ::box (if (= block-width 2) \[ \O)
+    ::box \O
     ::robot \@
+    ::leftbox \[
+    ::rightbox \]
     nil \.))
 
-(defn display [{{:keys [::w ::h ::positions ::block-width]} ::map :as state}]
+(defn display [{{:keys [::w ::h ::positions]} ::map :as state}]
   {:pre [(s/valid? ::state state)]}
   (let [empty-buffer (transient (vec (repeat (* h w) \.)))
         index (fn [[i j]] (+ (* w j) i))
         buffer (persistent! (reduce
                              (fn [buffer [[i j] kind]]
-                               (let [buffer (assoc! buffer (index [i j]) (display-kind kind block-width))]
-                                 (if (and (= 2 block-width) (= kind ::box))
-                                   (assoc! buffer (index [(inc i) j]) \])
-                                   buffer)))
+                               (assoc! buffer (index [i j]) (display-kind kind)))
                              empty-buffer positions))]
     (doseq [line (partition w buffer)]
       (println (apply str line)))))
 
-(defn move [positions old-pos delta]
-  {:pre [(s/valid? ::positions positions)
-         (s/valid? ::p old-pos)
-         (s/valid? ::p delta)]
-   :post [(s/valid? ::positions %)]}
-  (let [kind (get positions old-pos)]
-    (assoc positions old-pos nil (mapv + old-pos delta) kind)))
+;; (defn move [positions old-pos delta]
+;;   {:pre [(s/valid? ::positions positions)
+;;          (s/valid? ::p old-pos)
+;;          (s/valid? ::p delta)]
+;;    :post [(s/valid? ::positions %)]}
+;;   (let [kind (get positions old-pos)]
+;;     (assoc positions old-pos nil (mapv + old-pos delta) kind)))
 
-(move {[7 6] ::wall,
-       [7 1] ::wall} [7 6] [7 7])
-;;=> {[7 6] nil, [7 1] :wall, [7 7] :wall}
+;; (move {[7 6] ::wall,
+;;        [7 1] ::wall} [7 6] [7 7])
+;; ;;=> {[7 6] nil, [7 1] :wall, [7 7] :wall}
+
+(defn add-pos [pos delta]
+  (s/assert  ::position-list pos)
+  (s/assert  ::delta delta)
+  (mapv #(mapv + % delta) pos))
+
+(add-pos [[1 2] [3 4]] [1 1])
+
+(s/def ::intersection (s/tuple ::kind ::position-list))
+
+(defn p-intersect [positions intersects p]
+  (s/assert  ::p p)
+  (s/assert  ::positions positions)
+  (s/assert (s/coll-of ::p :kind set?) intersects)
+  (let [kind (get positions p)]
+   ;; (println "    p-intersect" kind p)
+    (cond
+      (= ::box kind) (update intersects ::box conj p)
+      (= ::wall kind) (update intersects ::wall conj p)
+      (= ::leftbox kind) (-> intersects
+                             (update ::box conj p)
+                             (update ::box conj (mapv + p [1 0])))
+
+      (= ::rightbox kind) (-> intersects
+                              (update ::box conj p)
+                              (update ::box conj (mapv + p [-1 0])))
+
+      :else intersects)))
+
+(defn intersects? [positions pos]
+  (s/assert  ::position-list pos)
+  (s/assert  ::positions positions)
+
+  (let [intersects (reduce (partial p-intersect positions) {::wall [] ::box []} pos)]
+    ;; (println "  intersects" intersects)
+    (cond
+      (not-empty (get intersects ::wall))
+      [::wall (vec (get intersects ::wall))]
+
+      (not-empty (get intersects ::box))
+      [::box (vec  (get intersects ::box))]
+
+      :else nil)))
 
 (defn find-moveable [positions pos delta]
   {:pre [(s/valid? ::positions positions)
@@ -302,14 +341,18 @@ small-sample
          (s/valid? ::p delta)]
    :post [(s/valid? ::position-list %)]}
   (loop [moveable []
-         pos pos]
-    (let [new-pos (mapv + pos delta)
-          kind (get positions new-pos)]
+         pos [pos]
+         count 0]
+   ;; (println "find-moveable" moveable pos count)
+    (assert (< count 1000))
+    (let [new-pos (add-pos pos delta)
+          [kind new-pos] (intersects? positions new-pos)
+          new-pos (vec (set/difference (set new-pos) (set pos)))]
+    ;;  (println " find-moveable intersects" kind pos new-pos)
       (case kind
         ::wall [] ; we ran into a wall, no moves possible
-        nil (reverse (conj moveable pos)) ; move the head of the line first to make room for everyone
-        ::box (recur (conj moveable pos) new-pos)
-        ::robot (recur (conj moveable pos) new-pos)))))
+        nil (reverse (into moveable pos)); move the head of the line first to make room for everyone
+        ::box (recur (into moveable pos) new-pos (inc count))))))
 
 (find-moveable (get-in small-sample [::map ::positions]) [2 2] [-1 0])
 ;;=> []
@@ -324,10 +367,17 @@ small-sample
          (s/valid? ::position-list moveable)
          (s/valid? ::p delta)]
    :post [(s/valid? ::positions %)]}
-  (reduce (fn [positions pos]
-            (move positions pos delta))
-          positions
-          moveable))
+  (let [new-positions (transient positions)
+
+        new-positions (reduce (fn [new-positions pos]
+                                (dissoc! new-positions pos))
+                              new-positions
+                              moveable)
+        new-positions (reduce (fn [new-positions pos]
+                                (assoc! new-positions (mapv + pos delta) (get positions pos)))
+                              new-positions
+                              moveable)]
+    (persistent! new-positions)))
 
 (move-all (get-in small-sample [::map ::positions]) [[4 2] [4 3] [4 4] [4 5]] [0 -1])
 ;;=> {[7 6] :com.benjaminbinford.day15/wall,
@@ -404,7 +454,7 @@ small-sample
 (defn gps [{{positions ::positions} ::map :as state}]
   {:pre [(s/valid? ::state state)]
    :post [(s/valid? number? %)]}
-  (let [boxes (filter #(= ::box (second %)) positions)
+  (let [boxes (filter #(#{::box ::leftbox} (second %)) positions)
         gps (map (fn [[[i j] _]] (+ i (* 100 j))) boxes)]
 
     (reduce + gps)))
@@ -421,8 +471,8 @@ sample
   (let [double-walls (str/replace input #"#" "##")
         double-empty (str/replace double-walls #"\." "..")
         double-robot (str/replace double-empty #"@" "@.")
-        double-box (str/replace double-robot #"O" "O.")]
-    (parse double-box 2)))
+        double-box (str/replace double-robot #"O" "[]")]
+    (parse double-box)))
 
 (def day2small (parse-expand-map "#######
 #...#.#
@@ -442,13 +492,15 @@ day2small
 ;;                                                            [0 0] :com.benjaminbinford.day15/wall,
 ;;                                                            [13 6] :com.benjaminbinford.day15/wall,
 ;;                                                            [1 0] :com.benjaminbinford.day15/wall,
-;;                                                            [8 3] :com.benjaminbinford.day15/box,
+;;                                                            [7 4] :com.benjaminbinford.day15/rightbox,
+;;                                                            [8 3] :com.benjaminbinford.day15/leftbox,
 ;;                                                            [0 6] :com.benjaminbinford.day15/wall,
 ;;                                                            [1 1] :com.benjaminbinford.day15/wall,
-;;                                                            [6 3] :com.benjaminbinford.day15/box,
+;;                                                            [6 3] :com.benjaminbinford.day15/leftbox,
 ;;                                                            [0 5] :com.benjaminbinford.day15/wall,
 ;;                                                            [11 0] :com.benjaminbinford.day15/wall,
 ;;                                                            [12 5] :com.benjaminbinford.day15/wall,
+;;                                                            [7 3] :com.benjaminbinford.day15/rightbox,
 ;;                                                            [8 6] :com.benjaminbinford.day15/wall,
 ;;                                                            [12 2] :com.benjaminbinford.day15/wall,
 ;;                                                            [13 2] :com.benjaminbinford.day15/wall,
@@ -457,6 +509,7 @@ day2small
 ;;                                                            [6 6] :com.benjaminbinford.day15/wall,
 ;;                                                            [9 6] :com.benjaminbinford.day15/wall,
 ;;                                                            [12 1] :com.benjaminbinford.day15/wall,
+;;                                                            [9 3] :com.benjaminbinford.day15/rightbox,
 ;;                                                            [13 1] :com.benjaminbinford.day15/wall,
 ;;                                                            [13 0] :com.benjaminbinford.day15/wall,
 ;;                                                            [8 0] :com.benjaminbinford.day15/wall,
@@ -468,7 +521,7 @@ day2small
 ;;                                                            [1 5] :com.benjaminbinford.day15/wall,
 ;;                                                            [11 6] :com.benjaminbinford.day15/wall,
 ;;                                                            [12 4] :com.benjaminbinford.day15/wall,
-;;                                                            [6 4] :com.benjaminbinford.day15/box,
+;;                                                            [6 4] :com.benjaminbinford.day15/leftbox,
 ;;                                                            [8 1] :com.benjaminbinford.day15/wall,
 ;;                                                            [0 3] :com.benjaminbinford.day15/wall,
 ;;                                                            [5 6] :com.benjaminbinford.day15/wall,
@@ -483,15 +536,17 @@ day2small
 ;;                                                            [12 3] :com.benjaminbinford.day15/wall,
 ;;                                                            [1 6] :com.benjaminbinford.day15/wall,
 ;;                                                            [2 6] :com.benjaminbinford.day15/wall,
-;;                                                            [5 0] :com.benjaminbinford.day15/wall,
-;;                                                            [13 4] :com.benjaminbinford.day15/wall,
-;;                                                            [6 0] :com.benjaminbinford.day15/wall,
 ;;                                                            ...},
 ;;                                                           :robot [10 3],
 ;;                                                           :w 14,
-;;                                                           :h 7,
-;;                                                           :block-width 2},
+;;                                                           :h 7},
 ;;                               :commands [[-1 0] [0 1] [0 1] [-1 0] [-1 0] [0 -1] [0 -1] [-1 0] [-1 0] [0 -1] [0 -1]]}
 
-
 (display day2small)
+()
+
+
+(def day2sample (parse-expand-map (slurp "resources/sample.txt")))
+
+
+(def day2input (parse-expand-map (slurp "resources/input.txt")))

@@ -15,7 +15,7 @@
 (s/def ::visit (s/tuple ::loc ::cost))
 (s/def ::q (s/map-of ::loc ::cost))
 (s/def ::distances (s/map-of ::loc number?))
-(s/def ::priors (s/map-of ::loc ::loc))
+(s/def ::priors (s/map-of ::loc (s/coll-of ::loc)))
 (s/def ::seen (s/coll-of ::loc :kind set?))
 (s/def ::state (s/keys :req [::grid ::distances ::priors ::q]))
 
@@ -25,6 +25,7 @@
 (def input (parse "resources/input.txt"))
 (def sample (parse "resources/sample.txt"))
 (def sample2 (parse "resources/sample2.txt"))
+(def sample3 (parse "resources/sample3.txt"))
 
 
 (defn make-visit [loc cost]
@@ -54,13 +55,13 @@
                                          (when (= kind \E) [j i]))
                                        (map-indexed (fn [idx itm] [idx itm]) row)))
                                (map-indexed (fn [idx itm] [idx itm]) grid))]
-              (map #(conj coords %) [::n ::s ::w ::e]))))
+              (into #{} (map #(conj coords %) [::n ::s ::w ::e])))))
 
 (find-ends sample)
-;;=> ([1 13 :com.benjaminbinford.day16/n]
-;;    [1 13 :com.benjaminbinford.day16/s]
-;;    [1 13 :com.benjaminbinford.day16/w]
-;;    [1 13 :com.benjaminbinford.day16/e])
+;;=> #{[1 13 :com.benjaminbinford.day16/s]
+;;     [1 13 :com.benjaminbinford.day16/w]
+;;     [1 13 :com.benjaminbinford.day16/n]
+;;     [1 13 :com.benjaminbinford.day16/e]}
 
 (defn move-cost [start-direction end-direction]
   (s/assert ::direction start-direction)
@@ -73,25 +74,6 @@
               (::w ::e) (case end-direction
                           (::w ::e) 1
                           (::n ::s) 1001))))
-
-(defn visit-comparator [[[ai aj ad] costa]
-                        [[bi bj bd] costb]]
-  (or (some (fn [[x y]]
-
-              (let [c (compare x y)]
-                (when (not= c 0)
-                  c)))
-            [[costa costb] [ai bi] [aj bj] [ad bd]])
-      0))
-
-
-(visit-comparator [[1 1 ::n] 1] [[1 1 ::n] 2])
-;;=> -1
-(visit-comparator [[1 1 ::n] 13] [[1 1 ::n] 2])
-;;=> 1
-(visit-comparator [[1 1 ::n] 2] [[1 1 ::s] 2])
-;;=> -5
-
 
 
 (defn loc-coords [loc]
@@ -205,17 +187,29 @@
 
 
 (move-loc [1 1 ::e] ::n)
+
+(defn not-backwards [[[_ _ d1] _] [[_ _ d2] _]]
+  (case d1
+    ::e (not= d2 ::w)
+    ::w (not= d2 ::e)
+    ::s (not= d2 ::n)
+    ::n (not= d2 ::s)))
+
+(not-backwards (make-visit [1 1 ::n] 10)  (make-visit [2 1 ::s] 10))
+;;=> false
+;;=> true
 ;;=> [0 1 :com.benjaminbinford.day16/n]
 
 
-(defn available-exits [visit {:keys [::grid ::seen] :as state}]
-  (s/assert ::state state)
+(defn available-exits [visit grid]
+  (s/assert ::grid grid)
   (s/assert (s/coll-of ::visit)
             (let [loc (visit-loc visit)
                   cost (visit-cost visit)]
               (keep (fn [exit]
-                      (when (and (not (seen (visit-loc exit)))
-                                 (#{\. \S \E} (get-in grid (loc-coords (visit-loc exit)))))
+                      (when (and
+                             (#{\. \S \E} (get-in grid (loc-coords (visit-loc exit))))
+                             (not-backwards visit exit))
                         exit))
                     (map (fn [exit-direction]
                            (make-visit
@@ -223,36 +217,10 @@
                             (+ cost (move-cost (loc-direction loc) exit-direction))))
                          [::n ::e ::s ::w])))))
 
-(available-exits (find-start sample)  (update-in (initial-state sample) [::seen] conj [12 1 ::n]))
-;;=> ([[13 2 :com.benjaminbinford.day16/e] 1])
-
-(available-exits (find-start sample)  (update-in (initial-state sample) [::seen] conj [13 2 ::e]))
-;;=> ([[12 1 :com.benjaminbinford.day16/n] 1001])
-(available-exits  (find-start sample) (initial-state sample))
+(available-exits (find-start sample)  (::grid (update-in (initial-state sample) [::seen] conj [12 1 ::n])))
 ;;=> ([[12 1 :com.benjaminbinford.day16/n] 1001] [[13 2 :com.benjaminbinford.day16/e] 1])
 
 
-;;=> [[[13 1 :com.benjaminbinford.day16/e] 0]
-;;    #:com.benjaminbinford.day16{:distances {},
-;;                                :priors {},
-;;                                :seen #{},
-;;                                :q {},
-;;                                :grid
-;;                                [[\# \# \# \# \# \# \# \# \# \# \# \# \# \# \#]
-;;                                 [\# \. \. \. \. \. \. \. \# \. \. \. \. \E \#]
-;;                                 [\# \. \# \. \# \# \# \. \# \. \# \# \# \. \#]
-;;                                 [\# \. \. \. \. \. \# \. \# \. \. \. \# \. \#]
-;;                                 [\# \. \# \# \# \. \# \# \# \# \# \. \# \. \#]
-;;                                 [\# \. \# \. \# \. \. \. \. \. \. \. \# \. \#]
-;;                                 [\# \. \# \. \# \# \# \# \# \. \# \# \# \. \#]
-;;                                 [\# \. \. \. \. \. \. \. \. \. \. \. \# \. \#]
-;;                                 [\# \# \# \. \# \. \# \# \# \# \# \. \# \. \#]
-;;                                 [\# \. \. \. \# \. \. \. \. \. \# \. \# \. \#]
-;;                                 [\# \. \# \. \# \. \# \# \# \. \# \. \# \. \#]
-;;                                 [\# \. \. \. \. \. \# \. \. \. \# \. \# \. \#]
-;;                                 [\# \. \# \# \# \. \# \. \# \. \# \. \# \. \#]
-;;                                 [\# \S \. \. \# \. \. \. \. \. \# \. \. \. \#]
-;;                                 [\# \# \# \# \# \# \# \# \# \# \# \# \# \# \#]]}]
 (lowest-cost-q (-> (initial-state sample)
                    (assoc-in [::q [13 1 :com.benjaminbinford.day16/e]] 28)
                    (assoc-in [::q  [14 1 :com.benjaminbinford.day16/e]] 27)))
@@ -385,20 +353,34 @@
 ;;                                 [\# \# \# \# \# \# \# \# \# \# \# \# \# \# \#]]}]
 
 
+(defn update-state-for-exit [cur state exit]
+  (s/assert ::state state)
+  (s/assert ::visit exit)
+  (s/assert ::visit cur)
+  (let [loc (visit-loc exit)
+        cost (visit-cost exit)]
+    (cond
+      (not (contains? (::seen state) loc))
+      (-> state
+          (update ::seen conj loc)
+          (update ::distances assoc loc cost)
+          (update ::priors assoc loc [(visit-loc cur)])
+          (add-q loc cost))
+
+      (= cost (get-in (::distances state) loc))
+      (update-in state [::priors loc] conj (visit-loc cur))
+
+      :else
+      state)))
+
 (defn dijkstra-step [state]
   (s/assert ::state state)
   (s/assert
    ::state
    (let [[cur state] (lowest-cost-q state)
-         exits (filter #(not ((::seen state) (visit-loc %))) (available-exits cur state))]
-     (reduce (fn [state exit]
-               (let [loc (visit-loc exit)
-                     cost (visit-cost exit)]
-                 (-> state
-                     (update ::seen conj loc)
-                     (update ::distances assoc loc cost)
-                     (update ::priors assoc loc (visit-loc cur))
-                     (add-q loc cost))))
+         exits (available-exits cur (::grid state))]
+     ;;(println " cur" cur "\n\n" " exits" exits "\n\n q" (::q state))
+     (reduce (partial update-state-for-exit cur)
              state
              exits))))
 
@@ -433,8 +415,7 @@
   (s/assert ::state state)
   (s/assert ::state
             (loop [state state]
-              (when (zero? (rem (count (::seen state)) 100))
-                (println (count (::seen state))))
+             ;; (println state "\n\n")
               (if (empty? (get state ::q))
                 state
                 (recur (dijkstra-step state))))))
@@ -443,808 +424,26 @@
   (let [s (initial-state input)
         s (dijkstra s)
         ds (seq (::distances s))]
-    (map (fn [end] (filter (fn [v] (= (visit-loc v) end)) ds))
-         (find-ends input))))
+    (apply min (keep (fn [end] (second (first (filter (fn [v] (= (visit-loc v) end)) ds))))
+                     (find-ends input)))))
 
 
 (day1 sample)
+;;=> 7036
+;;=> (7036 nil nil 10028)
+;;=> (([[1 13 :com.benjaminbinford.day16/n] 7036]) () () ([[1 13 :com.benjaminbinford.day16/e] 8038]))
 ;;=> (([[1 13 :com.benjaminbinford.day16/n] 7036]) () () ([[1 13 :com.benjaminbinford.day16/e] 8038]))
 
 (day1 sample2)
 ;;=> (([[1 15 :com.benjaminbinford.day16/n] 11048]) () () ([[1 15 :com.benjaminbinford.day16/e] 12048]))
 
-;;(day1 input)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+(day1 input)
+;;=> 98520
+
+;; (defn day2 [input]
+;;   (s/assert ::grid input)
+;;   (let [target (day1 input)
+;;         start (find-start input)
+;;         ends (find-ends input)]
+;;     (search target ends start  )))
 

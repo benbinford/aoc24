@@ -1,5 +1,6 @@
 {:paths ["src" "resources"]
- :deps {org.clojure/clojure {:mvn/version "1.12.0"}}
+ :deps {org.clojure/clojure {:mvn/version "1.12.0"}
+        org.clojure/math.combinatorics {:mvn/version "0.1.6"}}
  :aliases
  {:run-m {:main-opts ["-m" "com.benjaminbinford.day23"]}
   :run-x {:ns-default com.benjaminbinford.day23

@@ -56,8 +56,35 @@
 ;;         (update-system out op in1 in2))))
 
 
+;; (defn remove-inderect-rule [system key rule]
+;;   (println "removing " key rule)
+;;   (cond
+;;     (not (string? key))
+;;     [system rule]
 
 
+;;     (not rule)
+;;     [system key]
+
+;;     :else
+;;     (let [{:keys [in1 in2]} rule
+;;           [system in1] (remove-inderect-rule system in1 (get-in system [:rules in1]))
+;;           [system in2] (remove-inderect-rule system in2 (get-in system [:rules in2]))
+;;           rule (assoc rule :in1 in1)
+;;           rule (assoc rule :in2 in2)
+;;           system (assoc-in system [:rules key] rule)]
+;;       (println "updating " key " with " in1 " " in2)
+
+;;       (println "after update " system)
+;;       [system rule])))
+
+
+;; (defn remove-indirect-rules [system]
+;;   (reduce
+;;    (fn [next-system [key, rule]]
+;;      (first (remove-inderect-rule next-system key rule)))
+;;    system
+;;    (:rules system)))
 
 (defn parse-rules
   "parse a list rules separted by \n of the form y18 XOR x18 -> wrn or 
@@ -152,6 +179,117 @@
    (print-tree system rule 0)))
 
 
+(defn matches-sum-n [_ index {:keys [in1 in2 op]}  key]
+  (if (and (= "XOR" op)
+           (or (and (= in1 (format-gate "x" index)) (= in2 (format-gate "y" index)))
+               (and (= in1 (format-gate "y" index)) (= in2 (format-gate "x" index)))))
+    []
+    [{:key key :index index :rule "matches-sum-n"}]))
+
+
+
+(defn matches-half-carry-n [_ index {:keys [in1 in2 op]}  key]
+  (if (and (= "AND" op)
+           (or (and (= in1 (format-gate "x" index)) (= in2 (format-gate "y" index)))
+               (and (= in1 (format-gate "y" index)) (= in2 (format-gate "x" index)))))
+    []
+    [{:key key :index index :rule "matches-half-carry-n"}]))
+
+
+
+;;CARRY Zn = OR (AND Xn-1 Yn-1) (AND (Xn-1 XOR Yn-1) (CARRY Zn-1))
+(declare matches-prior-carries-n)
+(declare matches-rule)
+
+(defn matches-carry-n [system index {:keys [in1 in2 op] :as rule}  key]
+  (cond
+    (= 0 index) []
+    (= 1 index)
+    (matches-half-carry-n system (dec index) rule key)
+    :else
+    (matches-rule system key index "matches-carry-n"
+                  "OR"
+                  (partial matches-half-carry-n system (dec index))
+                  (partial matches-prior-carries-n system (dec index)))))
+
+
+(defn matches-prior-carries-n [system index _  key]
+  (matches-rule system key index "matches-prior-carries-n"
+                "AND"
+                (partial matches-sum-n system index)
+                (partial matches-carry-n system index)))
+
+(defn matches-rule [system key index context expected-op op-rule-a op-rule-b]
+  (let [{:keys [in1 in2 op]} (get-in system [:rules key])]
+    (if (not= op expected-op)
+      [{:key key :index index :rule (str context " expected " expected-op " but got " op)}]
+      (let [in1-rule (get-in system [:rules in1])
+            in2-rule (get-in system [:rules in2])
+            bad-in1-rule-a (op-rule-a in1-rule in1)
+            bad-in2-rule-a (op-rule-a in2-rule in2)
+            bad-in1-rule-b (op-rule-b in1-rule in1)
+            bad-in2-rule-b (op-rule-b in2-rule in2)]
+        (cond
+          (empty? bad-in1-rule-a)
+
+          (if (empty? bad-in2-rule-b)
+            []
+            bad-in2-rule-b)
+
+          (empty? bad-in2-rule-a)
+
+          (if (empty? bad-in1-rule-b)
+            []
+            bad-in1-rule-b)
+
+          (empty? bad-in1-rule-b)
+          bad-in2-rule-a
+
+          (empty? bad-in2-rule-b)
+          bad-in1-rule-a
+
+          :else
+          [{:key key :index index :rule (str context " failed to match children")}])))))
+
+
+(defn correct-zn [system index key]
+  (let [rule (get-in system [:rules key])]
+    (if (= 0 index)
+      (matches-sum-n system index rule  key)
+      (matches-rule system key index "correct-zn"  "XOR" (partial matches-sum-n system index) (partial matches-carry-n system index)))))
+
+
+(correct-zn input 5 "z20")
+;;=> ["z05"]
+;;=> [5]
+(get-in input [:rules "z00"])
+
+(into #{} (mapcat #(correct-zn input (first %) (second %)) (generate-z-values input)))
+;;=> #{{:key "htp", :index 15, :rule "matches-prior-carries-n expected AND but got XOR"}
+;;     {:key "dkr", :index 5, :rule "matches-half-carry-n"}
+;;     {:key "gqf", :index 37, :rule "matches-carry-n failed to match children"}
+;;     {:key "z45", :index 45, :rule "correct-zn expected XOR but got OR"}
+;;     {:key "z05", :index 5, :rule "correct-zn expected XOR but got AND"}
+;;     {:key "z15", :index 15, :rule "correct-zn expected XOR but got AND"}
+;;     {:key "z20", :index 20, :rule "correct-zn expected XOR but got OR"}
+
+;; ggk
+;; hpg
+
+;; bqf
+
+;;;swaps
+;;rhv/ggk
+
+(get-in input [:rules "z36"])
+;;=> {:in1 "ggk", :in2 "hpg", :op "XOR", :result "z36"}
+
+;;     {:key "z36", :index 36, :rule "correct-zn failed to match children"}
+;;  
+
+;; z36, z45 z05, z15, z20
+
+;;     {:key "dkr", :index 5, :rule "matches-half-carry-n"}
 
 
 ;;;  Zn = XOR (XOR Xn Yn) (Carry Zn-1)
@@ -159,8 +297,8 @@
 ;; Z1 = XOR (XOR X1 Y1) (CARRY Z0)
 ;; Z2 = XOR (XOR X2 Y2) (CARRY Z1)
 
-;;; Carry Z0 = 0
-;;; Carry Z1 = AND X0 0
+;;; Carry Z1 = 0
+;;; Carry Z2 = AND X0 Y0
 ;;; Carry Z2 = OR (XOR X1 X1) (CARRY Z1)
 ;;; Carry Z3 = OR (AND X2 Y2) (AND (X2 XOR Y2) (OR (XOR X1 Y1) (CARRY Z1)))
 ;; CARRY Z3 = OR (AND X2 Y2) (AND (X2 XOR Y2) (CARRY Z2))

@@ -265,6 +265,55 @@
 (get-in input [:rules "z00"])
 
 (into #{} (mapcat #(correct-zn input (first %) (second %)) (generate-z-values input)))
+;;; after hhh/z20
+;;=> #{{:key "z45", :index 45, :rule "correct-zn expected XOR but got OR"}}
+
+
+;; and z45 is just the carry
+
+
+;;z45 is the carry for z45
+;;z20 is the carry for z21
+
+;z15 is part of a carry tree for z16+
+;;; after htp/z15
+;;=> #{{:key "z45", :index 45, :rule "correct-zn expected XOR but got OR"}
+;;     {:key "z20", :index 20, :rule "correct-zn expected XOR but got OR"}
+;;     {:key "hhh", :index 21, :rule "matches-carry-n expected OR but got XOR"}}
+
+
+;;; after dkr/z05
+
+;;=> #{{:key "htp", :index 15, :rule "matches-prior-carries-n expected AND but got XOR"}
+;;     {:key "z45", :index 45, :rule "correct-zn expected XOR but got OR"}
+;;     {:key "z15", :index 15, :rule "correct-zn expected XOR but got AND"}
+;;     {:key "z20", :index 20, :rule "correct-zn expected XOR but got OR"}
+;;     {:key "hhh", :index 21, :rule "matches-carry-n expected OR but got XOR"}}
+
+
+;;; after rhv/ggk
+;;=> #{{:key "htp", :index 15, :rule "matches-prior-carries-n expected AND but got XOR"}
+;;     {:key "z45", :index 45, :rule "correct-zn expected XOR but got OR"}
+;;     {:key "z05", :index 5, :rule "correct-zn expected XOR but got AND"}
+;;     {:key "z15", :index 15, :rule "correct-zn expected XOR but got AND"}
+;;     {:key "z20", :index 20, :rule "correct-zn expected XOR but got OR"}
+;;     {:key "dkr", :index 5, :rule "matches-half-carry-n"}
+;;     {:key "hhh", :index 21, :rule "matches-carry-n expected OR but got XOR"}}
+
+
+;;; original
+;;=> #{{:key "htp", :index 15, :rule "matches-prior-carries-n expected AND but got XOR"}
+;;     {:key "z45", :index 45, :rule "correct-zn expected XOR but got OR"}
+;;     {:key "z05", :index 5, :rule "correct-zn expected XOR but got AND"}
+;;     {:key "gqf", :index 37, :rule "matches-carry-n failed to match children"}
+;;     {:key "z15", :index 15, :rule "correct-zn expected XOR but got AND"}
+;;     {:key "z20", :index 20, :rule "correct-zn expected XOR but got OR"}
+;;     {:key "dkr", :index 5, :rule "matches-half-carry-n"}
+;;     {:key "z36", :index 36, :rule "correct-zn failed to match children"}
+;;     {:key "hhh", :index 21, :rule "matches-carry-n expected OR but got XOR"}}
+
+
+
 ;;=> #{{:key "htp", :index 15, :rule "matches-prior-carries-n expected AND but got XOR"}
 ;;     {:key "dkr", :index 5, :rule "matches-half-carry-n"}
 ;;     {:key "gqf", :index 37, :rule "matches-carry-n failed to match children"}
@@ -279,8 +328,14 @@
 ;; bqf
 
 ;;;swaps
-;;rhv/ggk
+;; rhv/ggk
+;; dkr/z05
+;; htp/z15
+;; hhh/z20
 
+
+(str/join "," (sort ["hhh" "z20" "rhv" "ggk" "dkr" "z05" "htp" "z15"]))
+;;=> "dkr,ggk,hhh,htp,rhv,z05,z15,z20"
 (get-in input [:rules "z36"])
 ;;=> {:in1 "ggk", :in2 "hpg", :op "XOR", :result "z36"}
 

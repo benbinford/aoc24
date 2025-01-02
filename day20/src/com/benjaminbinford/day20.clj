@@ -7,17 +7,8 @@
 
 
 
-(defn parse [file]
-  (str/split-lines (slurp file)))
-
-(def input (parse "resources/input.txt"))
-(def sample (parse "resources/sample.txt"))
-(def sample3 (parse "resources/sample3.txt"))
-
-
-
-(defn make-vertex [j i value]
-  {:j j :i i :value (case value \# \# \S \. \E \. \.)})
+(defn make-vertex [j i]
+  {:j j :i i})
 
 
 
@@ -25,330 +16,234 @@
 (defn find-in-grid [grid c]
   (some (fn [[j row]]
           (some (fn [[i kind]]
-                  (when (= kind c) (make-vertex j i c)))
+                  (when (= kind c) (make-vertex j i)))
                 (map-indexed (fn [idx itm] [idx itm]) row)))
         (map-indexed (fn [idx itm] [idx itm]) grid)))
 
-(find-in-grid sample \S)
-;;=> {:j 3, :i 1}
-(find-in-grid sample \E)
-;;=> {:j 7, :i 5}
 
+
+
+
+(defn next-cell [grid current prior]
+  (first (for [[dj di] [[1 0] [-1 0] [0 1] [0 -1]]
+               :let [j (+ dj (:j current))
+                     i (+ di (:i current))
+                     v (get-in grid [j i])
+                     next (make-vertex j i)]
+               :when (and (#{\. \S \E} v)
+                          (not= next prior))]
+           next)))
+
+
+
+(next-cell (str/split-lines (slurp "resources/sample.txt")) {:j 3 :i 1} nil)
+;;=> {:j 2, :i 1}
+(next-cell (str/split-lines (slurp "resources/sample.txt")) {:j 2 :i 1} {:j 3 :i 1})
+;;=> {:j 1, :i 1}
+;;=> {:j 3, :i 1}
+
+
+(defn distances [{:keys [start end grid] :as m}]
+  (loop [distance 0
+         distances {}
+         current start
+         prior nil]
+    (let [distances (assoc distances current distance)]
+      (if (= current end)
+        (assoc m :distances distances)
+        (recur (inc distance)
+               distances
+               (next-cell grid current prior)
+               current)))))
 
 (defn graph-meta [input]
   (let [h (count input)
         w (count (first input))]
-    {:h h :w w :start (find-in-grid input \S) :end (find-in-grid input \E)}))
-
-
-(graph-meta sample)
-;;=> {:h 15, :w 15, :start {:j 3, :i 1}, :end {:j 7, :i 5}}
-
-
-
-(graph-meta input)
-;;=> {:h 141, :w 141, :start {:j 69, :i 115}, :end {:j 79, :i 97}}
-
-
-
-(defn any-cell? [h w v]
-  (let [j (:j v)
-        i (:i v)]
-    (and (<= 0 j (dec h))
-         (<= 0 i (dec w)))))
-
-(defn valid-cell? [h w v]
-  (let [j (:j v)
-        i (:i v)]
-    (and (<= 0 j (dec h))
-         (<= 0 i (dec w))
-         (#{\. \S \E} (:value v)))))
-
-(valid-cell? 15 15 (make-vertex 0 0 \#))
-;;=> nil
-(valid-cell? 15 15 (make-vertex 3 1 \S))
-;;=> \S
-
-(defn combine [m [k v]]
-  (update m k (fnil conj []) v))
-
-
-(defn neighbors [input h w v1]
-  (let [j (:j v1)
-        i (:i v1)]
-    (when (valid-cell? h w v1)
-      (filter (partial valid-cell? h w) [(make-vertex (inc j) i (get (get input (inc j)) i))
-                                         (make-vertex (dec j) i (get (get input (dec j)) i))
-                                         (make-vertex j (inc i) (get (get input j) (inc i)))
-                                         (make-vertex j (dec i) (get (get input j) (dec i)))]))))
-
-
-
-(defn wall-neighbors [input h w v1]
-  (let [j (:j v1)
-        i (:i v1)]
-
-    (filter #(any-cell? h w %)
-            [(make-vertex (inc j) i (get (get input (inc j)) i))
-             (make-vertex (dec j) i (get (get input (dec j)) i))
-             (make-vertex j (inc i) (get (get input j) (inc i)))
-             (make-vertex j (dec i) (get (get input j) (dec i)))])))
-
-(neighbors sample 15 15 (make-vertex  3  1 \S))
-;;=> ({:j 2, :i 1, :value \.})
-
-
-(defn make-wall-graph [input]
-  (let [g (graph-meta input)
-        h (:h g)
-        w (:w g)
-        vertices (apply hash-set (for [j (range (:h g)) i (range (:w g))
-                                       :let [v1 (make-vertex j i (nth (nth input j) i))]]
-                                   v1))
-
-        edges (reduce combine {} (for [v1 vertices
-                                       :when (= \# (:value v1))
-                                       v2 (wall-neighbors input h w v1)]
-                                   [v1 [v2 1]]))]
-    (into g {:v vertices :e edges})))
-
-(defn make-graph [input]
-  (let [g (graph-meta input)
-        h (:h g)
-        w (:w g)
-        vertices (apply hash-set (for [j (range (:h g)) i (range (:w g))
-                                       :let [v1 (make-vertex j i (nth (nth input j) i))]
-                                       :when (valid-cell?  h w v1)]
-                                   v1))
-
-
-
-
-        edges (reduce combine {} (for [v1 vertices v2 (neighbors input h w v1)]
-                                   [v1 [v2 1]]))]
-    (into g {:v vertices :e edges})))
-
-
-(defn dist-map [g]
-  {(:start g) 0})
-
-
-(defn q-map [g]
-  (priority-map-by <  (:start g) 0))
-
-(q-map (make-graph sample))
-;;=> {{:j 3, :i 1} 0}
-
-(defn dijkstra
-
-  ([g] (dijkstra g Integer/MAX_VALUE))
-  ([g cutoff]
-   (loop [{:keys [dist q] :as m} {:dist (dist-map g) :prev {} :q (q-map g)}]
-
-     (if (empty? q)
-       m
-       (let [[u uw] (first q)
-             m (update m :q dissoc u)
-             neighbors (get-in g [:e u])]
-          ;;(println "u  " u  "n  " neighbors)
-         (if (> uw cutoff)
-           m
-           (recur
-            (reduce (fn [m [v w]]
-                      (let [alt (+ uw w)]
-                     ;;  (println "v  " v "w  " w "alt  " alt  " new low " (< alt (get dist v)))
-                        (if (<= alt (get dist v Integer/MAX_VALUE))
-                          (-> m
-                              (assoc-in [:dist v] alt)
-                              (update-in [:prev v] (fnil conj []) u)
-                              (update :q dissoc v)
-                              (assoc-in [:q v] alt))
-                          m)))
-                    m neighbors))))))))
-
-
-
-(defn skip-neighbors [g v]
-
-  (let [deltas [[1 0] [-1 0] [0 1] [0 -1]]]
-    (for [[dj di] deltas
-          :let [j (+ dj (:j v))
-                i (+ di (:i v))
-                j2 (+ dj j)
-                i2 (+ di i)
-                v2 (some #(get-in g [:v (make-vertex j2 i2 %)]) [\. \S \E])]
-
-          :when (and
-                 v2
-                 (not (some #(contains? (:v g) (make-vertex j i %)) [\. \S \E])))]
-      v2)))
-
-
-(skip-neighbors (make-graph sample) {:j 1 :i 7})
-;;=> ({:j 1, :i 9})
-
-(defn cost-reduction [dist v1 skip-neighbor tunnel-distance]
-  (let [c1 (get dist v1)
-        c2 (get dist skip-neighbor)]
- ;;   (println  tunnel-distance "c1 " v1 c1 " c2 " skip-neighbor c2 " =  " (if (< (+ tunnel-distance c1) c2)
-  ;;                                                                         (+ tunnel-distance (- c1 c2))
-   ;;                                                                        nil) "\n")
-    (if (< (+ tunnel-distance c1) c2)
-      (+ tunnel-distance (- c1 c2))
-      nil)))
-
-(def gs (make-graph sample))
-(def gws (make-wall-graph sample))
-(def ds (dijkstra gs))
-
-(cost-reduction (:dist ds) (make-vertex 1 7 \.) (make-vertex 1  9 \.) 2)
-;;=> -12
-
-(cost-reduction (:dist ds) (make-vertex 7 9 \.) (make-vertex 7  11 \.) 2)
-;;=> -20
-
-(cost-reduction (:dist ds) (make-vertex 7 8 \.) (make-vertex  9 8 \.) 2)
-;;=> -38
-(cost-reduction (:dist ds) (make-vertex 7 7 \.) (make-vertex  7 5 \E) 2)
-;;=> -64
-
-
-
-(defn add-tunnel [wall-graph {:keys [i j] :as start}]
-  (let [walls (filter #(get-in wall-graph [:v %])
-                      [(make-vertex (inc j) i \#)
-                       (make-vertex (dec j) i \#)
-                       (make-vertex j (inc i) \#)
-                       (make-vertex j (dec i) \#)])]
-
-    (-> wall-graph
-        (assoc :start start)
-        (update :e
-                #(reduce combine %
-                         (for [v2 walls]
-                           [start [v2 1]]))))))
-
-(defn tunnel-neighbors [wall-graph start course-dists max-tunnel-length]
-  (let [wall-graph (add-tunnel wall-graph start)
-        d (dijkstra wall-graph (inc max-tunnel-length))
-        tunnel-ends (filter
-                     #(and
-                       (<= (dec (second %)) max-tunnel-length)
-                       (= \. (:value (first %))))
-                     (:dist d))]
-
-    (doall (keep
-            (fn [[v tunnel-cost]]
-      ;;  (println "here" course-dists start v tunnel-cost)
-              (let [reduction (cost-reduction course-dists start v  tunnel-cost)] ;; v and start are in the oposite directions because we are travelling forward through the walls as opposed to backwards in day1
-                (when reduction
-                  reduction)))
-            tunnel-ends))))
-
-
-
-
-(defn cheat-updater [cheats c]
- ;; (println "found cheat " c)
-  (let [cheats (update cheats c (fnil inc 0))]
-  ;;  (println "  cheats " cheats)
-    cheats))
-
-(defn find-cheats [g {:keys [dist prev]}]
-  (loop [v (:end g)
-         cheats {}]
-   ;; (println v)
-    (if (nil? v)
-      cheats
-      (recur (first (get prev v)) ;; our graphs only have a single line through
-             (reduce cheat-updater cheats
-                     (for [u (skip-neighbors g v)
-                           :let [c (cost-reduction dist v u 2)]
-                           :when c]
-                       c))))))
-
-
-(defn find-tunnels [g {:keys [dist prev]} wall-graph max-tunnel-length]
-  (loop [v (:end g)
-         cheats {}]
-
-    (if (nil? v)
-      (do
-        (println cheats)
-        cheats)
-      (recur (first (get prev v)) ;; our graphs only have a single line through
-             (reduce cheat-updater cheats
-                     (tunnel-neighbors wall-graph v dist max-tunnel-length))))))
-
-
-(find-cheats gs ds)
-;;=> {-12 3, -4 14, -64 1, -20 1, -2 14, -8 4, -6 2, -38 1, -36 1, -10 2, -40 1}
-
-
-(defn sum-cheats [cheats min]
-  (reduce + (for [[k v] cheats
-                  :when (<= k min)]
-              v)))
-
-(defn day1 [input min]
-  (let [g (make-graph input)
-        d (dijkstra g)]
-    (sum-cheats (find-cheats g d) min)))
-
-(day1 sample -12)
-;;=> 8
-;;=> 8
-
-(day1 input -100)
+    (distances {:h h :w w :start (find-in-grid input \S) :end (find-in-grid input \E) :grid input})))
+
+
+
+
+(defn parse [file]
+  (graph-meta (str/split-lines (slurp file))))
+
+
+
+(def input (parse "resources/input.txt"))
+(def sample (parse "resources/sample.txt"))
+;;=> #'com.benjaminbinford.day20/sample
+
+(get-in sample [:distances {:j 7, :i 5}])
+;;=> 84
+
+
+
+sample
+;;=> {:h 15,
+;;    :w 15,
+;;    :start {:j 3, :i 1},
+;;    :end {:j 7, :i 5},
+;;    :grid
+;;    ["###############"
+;;     "#...#...#.....#"
+;;     "#.#.#.#.#.###.#"
+;;     "#S#...#.#.#...#"
+;;     "#######.#.#.###"
+;;     "#######.#.#...#"
+;;     "#######.#.###.#"
+;;     "###..E#...#...#"
+;;     "###.#######.###"
+;;     "#...###...#...#"
+;;     "#.#####.#.###.#"
+;;     "#.#...#.#.#...#"
+;;     "#.#.#.#.#.#.###"
+;;     "#...#...#...###"
+;;     "###############"],
+
+
+(defn find-cheats [m max-length v]
+  (let [starting-distance (get-in m [:distances v])]
+    (for [dx (range (- max-length) (inc max-length))
+          dy (range (- max-length) (inc max-length))
+          :when (or (not= dx 0) (not= dy 0))
+          :let [cheat-distance (+ (abs dx) (abs dy))]
+          :when (<= cheat-distance max-length)
+          :let [j (+ dx (:j v))
+                i (+ dy (:i v))
+                d (get-in m [:distances {:j j, :i i}])]
+          :when d
+          :let [savings (- d (+ starting-distance cheat-distance))]
+          :when (> savings 0)]
+      {:start v :end (make-vertex j i)  :savings savings})))
+(get-in sample [:distances {:j 1, :i 7}])
+;;=> 12
+(range (- 2) (inc 2))
+;;=> (-2 -1 0 1 2)
+
+
+(find-cheats sample (make-vertex 1 7) 2)
+;;=> ({:start {:j 1, :i 7}, :end {:j 1, :i 9}, :savings 12})
+
+(find-cheats sample (make-vertex 7 9) 2)
+;;=> ({:start {:j 7, :i 9}, :end {:j 7, :i 11}, :savings 20} {:start {:j 7, :i 9}, :end {:j 9, :i 9}, :savings 36})
+
+(find-cheats sample (make-vertex 7 8) 2)
+;;=> ({:start {:j 7, :i 8}, :end {:j 9, :i 8}, :savings 38})
+
+(defn find-all-cheats [input max-length]
+  (into #{} (mapcat (partial find-cheats input max-length) (keys (get input :distances)))))
+
+(sort-by second >
+         (map (fn [[savings list]] [(count list) savings])
+              (group-by :savings (find-all-cheats sample 20))))
+;;=> ([3 76]
+;;    [4 74]
+;;    [22 72]
+;;    [12 70]
+;;    [14 68]
+;;    [12 66]
+;;    [19 64]
+;;    [20 62]
+;;    [23 60]
+;;    [25 58]
+;;    [39 56]
+;;    [29 54]
+;;    [31 52]
+;;    [32 50]
+;;    [37 48]
+;;    [38 46]
+;;    [99 44]
+;;    [41 42]
+;;    [93 40]
+;;    [51 38]
+;;    [57 36]
+;;    [58 34]
+;;    [61 32]
+;;    [61 30]
+;;    [80 28]
+;;    [66 26]
+;;    [129 24]
+;;    [76 22]
+;;    [217 20]
+;;    [94 18]
+;;    [263 16]
+;;    [101 14]
+;;    [252 12]
+;;    [109 10]
+;;    [224 8]
+;;    [122 6]
+;;    [329 4]
+;;    [138 2])
+;;=> ([138 2]
+;;    [329 4]
+;;    [122 6]
+;;    [224 8]
+;;    [109 10]
+;;    [252 12]
+;;    [101 14]
+;;    [263 16]
+;;    [94 18]
+;;    [217 20]
+;;    [76 22]
+;;    [129 24]
+;;    [66 26]
+;;    [80 28]
+;;    [61 30]
+;;    [61 32]
+;;    [58 34]
+;;    [57 36]
+;;    [51 38]
+;;    [93 40]
+;;    [41 42]
+;;    [99 44]
+;;    [38 46]
+;;    [37 48]
+;;    [32 50]
+;;    [31 52]
+;;    [29 54]
+;;    [39 56]
+;;    [25 58]
+;;    [23 60]
+;;    [20 62]
+;;    [19 64]
+;;    [12 66]
+;;    [14 68]
+;;    [12 70]
+;;    [22 72]
+;;    [4 74]
+;;    [3 76])
+;;=> ([14 2] [14 4] [2 6] [4 8] [2 10] [3 12] [1 20] [1 36] [1 38] [1 40] [1 64])
+;;   
+
+
+
+(reduce +
+        0
+        (map first (filter #(>= (second %) 100)
+                           (map (fn [[savings list]] [(count list) savings])
+                                (group-by :savings (find-all-cheats input 2))))))
 ;;=> 1197
 
 
 
-(defn day2 [input min max-tunnel-length]
-  (let [g (make-graph input)
-        d (dijkstra g)
-        wall-graph (make-wall-graph input)]
-    (sort-by first (find-tunnels g d wall-graph max-tunnel-length))))
+(defn part2 [input min-cheat max-length]
 
-(day2 sample -50 20) d
-;;=> ([-76 3]
-;;    [-74 4]
-;;    [-72 12]
-;;    [-70 10]
-;;    [-68 8]
-;;    [-66 11]
-;;    [-64 19]
-;;    [-62 18]
-;;    [-60 19]
-;;    [-58 18]
-;;    [-56 21]
-;;    [-54 22]
-;;    [-52 27]
-;;    [-50 36]
-;;    [-48 45]
-;;    [-46 37]
-;;    [-44 62]
-;;    [-42 50]
-;;    [-40 37]
-;;    [-38 49]
-;;    [-36 47]
-;;    [-34 43]
-;;    [-32 45]
-;;    [-30 47]
-;;    [-28 55]
-;;    [-26 52]
-;;    [-24 62]
-;;    [-22 66]
-;;    [-20 73]
-;;    [-18 82]
-;;    [-16 97]
-;;    [-14 109]
-;;    [-12 129]
-;;    [-10 149]
-;;    [-8 168]
-;;    [-6 164]
-;;    [-4 206]
-;;    [-2 258])
-;;=> 44
-(day2 input -99  20)
-;;=> 238953
+  (reduce +
+          0
+          (map first (filter #(>= (second %) min-cheat)
+                             (map (fn [[savings list]] [(count list) savings])
+                                  (group-by :savings (find-all-cheats input max-length)))))))
+
+
+(part2 input 100 20)
+;;=> 944910
+;;=> 1197
+(reduce +
+        0
+        (map first (filter #(>= (second %) 50)
+                           (map (fn [[savings list]] [(count list) savings])
+                                (group-by :savings (find-all-cheats input 20))))))
+;;=> 1199522
+;;=> 285
+;;=> 1197
+       
